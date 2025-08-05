@@ -11,8 +11,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing network output" }, { status: 400 })
     }
 
-    const prompt = `Convert the following Bayesian network description into a Mermaid flowchart diagram code. In the node labels, also mention the CPTs, node names without unclear abbreviations
-
+    const prompt = `Convert the following Bayesian network description into a Mermaid flowchart diagram code. In the node labels, also mention the conditional probability numbers within every node, node names without unclear abbreviations
+ALL INFORMATION ABOUT THE NETWORK MUST BE PRESENT IN THE DIAGRAM, INCLUDING NUMBERS, NAMES, CONNECTIONS
 CRITICAL FORMATTING REQUIREMENTS:
 1. Generate ONLY pure Mermaid syntax - NO markdown code blocks
 2. Do NOT include \`\`\`mermaid or \`\`\` anywhere in your response
