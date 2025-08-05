@@ -10,46 +10,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing network output" }, { status: 400 })
     }
 
-    const prompt = `Convert the following Bayesian network description into a Mermaid flowchart diagram code. 
+    const prompt = `Convert the following Bayesian network description into a Mermaid flowchart diagram code. In the node labels, also mention the CPTs, node names without unclear abbreviations
 
-IMPORTANT FORMATTING REQUIREMENTS:
-1. Use "flowchart TD" (Top Down) structure
-2. Each node and connection MUST be on a separate line
-3. Use clear, readable node names (no spaces, use underscores or camelCase)
-4. Show the network structure with proper parent-child relationships
-5. Use rectangular boxes for nodes: NodeName["Display Name"]
-6. Use arrows to show dependencies: ParentNode --> ChildNode
-7. Do NOT put everything on one line
-8. Make sure the syntax is valid Mermaid code
+CRITICAL FORMATTING REQUIREMENTS:
+1. Generate ONLY pure Mermaid syntax - NO markdown code blocks
+2. Do NOT include \`\`\`mermaid or \`\`\` anywhere in your response
+3. Start directly with "flowchart TD" 
+4. Each node and connection MUST be on a separate line
+5. Use clear node names without spaces (use underscores or camelCase)
+6. Use rectangular boxes: NodeName["Display Name"]
+7. Use arrows for dependencies: ParentNode --> ChildNode
 
 BAYESIAN NETWORK DESCRIPTION:
 ${networkOutput}
 
-Generate ONLY the Mermaid code, starting with "flowchart TD" and with each element on a new line. Do not include any explanations or additional text, just the pure Mermaid diagram code.
+RESPOND WITH ONLY THE MERMAID CODE - NO EXPLANATIONS, NO MARKDOWN FORMATTING.
 
-Example format:
+Correct example:
 flowchart TD
     A["Node A"]
-    B["Node B"]
-    C["Node C"]
-    A --> B
-    A --> C
-    B --> C`
+    B["Node B"] 
+    A --> B`
 
     const { text } = await generateText({
       model: openai("gpt-4o"),
       prompt: prompt,
-      temperature: 0.3,
+      temperature: 0.1, // Lower temperature for more consistent formatting
       maxTokens: 1000,
     })
 
-    // Clean up the response to ensure it's valid Mermaid code
+    // Clean up the response thoroughly
     let mermaidCode = text.trim()
 
-    // Ensure it starts with flowchart TD
-    if (!mermaidCode.startsWith("flowchart TD")) {
-      mermaidCode = "flowchart TD\n" + mermaidCode
+    // Remove any markdown code block syntax
+    mermaidCode = mermaidCode.replace(/```mermaid\s*/g, "")
+    mermaidCode = mermaidCode.replace(/```\s*/g, "")
+
+    // Remove any duplicate "flowchart TD" declarations
+    const lines = mermaidCode.split("\n")
+    const cleanedLines = []
+    let foundFlowchartTD = false
+
+    for (const line of lines) {
+      const trimmedLine = line.trim()
+      if (trimmedLine === "flowchart TD") {
+        if (!foundFlowchartTD) {
+          cleanedLines.push(trimmedLine)
+          foundFlowchartTD = true
+        }
+        // Skip duplicate flowchart TD declarations
+      } else if (trimmedLine) {
+        cleanedLines.push(line)
+      }
     }
+
+    // Ensure it starts with flowchart TD
+    if (!foundFlowchartTD) {
+      cleanedLines.unshift("flowchart TD")
+    }
+
+    mermaidCode = cleanedLines.join("\n")
 
     return NextResponse.json({ mermaidCode })
   } catch (error) {
@@ -62,3 +82,4 @@ flowchart TD
     )
   }
 }
+
