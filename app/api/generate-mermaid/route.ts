@@ -41,8 +41,10 @@ flowchart TD
     })
 
     let mermaidCode = initialText.trim()
-    mermaidCode = mermaidCode.replace(/```
-    mermaidCode = mermaidCode.replace(/```\s*/g, "")
+
+    // Remove any markdown code block syntax
+    mermaidCode = mermaidCode.replace(/```/g, "")
+
     const lines = mermaidCode.split("\n")
     const cleanedLines = []
     let foundFlowchartTD = false
