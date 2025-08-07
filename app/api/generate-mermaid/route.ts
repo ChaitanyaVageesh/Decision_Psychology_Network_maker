@@ -33,7 +33,7 @@ flowchart TD
     A --> B`
 
     const { text } = await generateText({
-      model: openai("gpt-4o"),
+      model: openai("o3"),
       prompt: prompt,
       temperature: 0.1, // Lower temperature for more consistent formatting
       maxTokens: 1000,
