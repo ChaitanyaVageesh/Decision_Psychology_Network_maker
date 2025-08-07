@@ -3,14 +3,19 @@ import { generateText } from "ai"
 import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
-  try {
-    const { networkOutput } = await request.json()
+  let mermaidCode: string | null = null
+  let judgeVerdict: string | null = null
+  let bayesNet: string | null = null
 
-    if (!networkOutput) {
-      return NextResponse.json({ error: "Missing network output" }, { status: 400 })
+  try {
+    const { bayesNetOutput } = await request.json()
+    bayesNet = bayesNetOutput
+
+    if (!bayesNet) {
+      return NextResponse.json({ error: "Missing Bayesian network output" }, { status: 400 })
     }
 
-    // === STEP 1: Generate Mermaid code ===
+    // Generate Mermaid code
     const prompt = `Convert the following Bayesian network description into a Mermaid flowchart diagram code. In the node labels, also mention the conditional probability numbers within every node, node names without unclear abbreviations
 ALL INFORMATION ABOUT THE NETWORK MUST BE PRESENT IN THE DIAGRAM, INCLUDING NUMBERS, NAMES, CONNECTIONS
 CRITICAL FORMATTING REQUIREMENTS:
@@ -23,7 +28,7 @@ CRITICAL FORMATTING REQUIREMENTS:
 7. Use arrows for dependencies: ParentNode --> ChildNode
 
 BAYESIAN NETWORK DESCRIPTION:
-${networkOutput}
+${bayesNet}
 
 RESPOND WITH ONLY THE MERMAID CODE - NO EXPLANATIONS, NO MARKDOWN FORMATTING.
 
@@ -31,178 +36,113 @@ Correct example:
 flowchart TD
     A["Node A"]
     B["Node B"] 
-    A --> B`
-
+    A --> B
+    `
     const { text: initialText } = await generateText({
       model: openai("gpt-4o"),
       prompt,
       temperature: 0.1,
-      maxTokens: 1000,
+      maxTokens: 4000,
     })
-
-    let mermaidCode = initialText.trim()
-
-    // Remove any markdown code block syntax
+    
     mermaidCode = mermaidCode.replace(/```/g, "")
 
+    // Clean-up: remove duplicates and ensure the header
     const lines = mermaidCode.split("\n")
-    const cleanedLines = []
-    let foundFlowchartTD = false
-
+    const cleanedLines: string[] = []
+    let foundHeader = false
     for (const line of lines) {
-      const trimmedLine = line.trim()
-      if (trimmedLine === "flowchart TD") {
-        if (!foundFlowchartTD) {
-          cleanedLines.push(trimmedLine)
-          foundFlowchartTD = true
+      const t = line.trim()
+      if (t.toLowerCase() === "flowchart td") {
+        if (!foundHeader) {
+          cleanedLines.push("flowchart TD")
+          foundHeader = true
         }
-      } else if (trimmedLine) {
+      } else if (t.length > 0) {
         cleanedLines.push(line)
       }
     }
-
-    if (!foundFlowchartTD) {
-      cleanedLines.unshift("flowchart TD")
-    }
-
+    if (!foundHeader) cleanedLines.unshift("flowchart TD")
     mermaidCode = cleanedLines.join("\n")
 
-    // === STEP 2: LLM Judge Step ===
+    // Judge if all requirements are met
     const judgePrompt = `
-Act as an expert in Bayesian networks and diagram verification.
-
-Given the original Bayesian network description and the generated Mermaid diagram code, check if ALL the following are included:
-- Every node, with correct, clear labels (no missing variables)
-- Every connection (parent-child relationships)
-- Every Conditional Probability Distribution (CPD) value or table, as numbers within nodes
-
-If any required element is missing, give a brief explanation listing exactly what’s absent and how to improve (e.g. "Node 'Weather' is missing its CPDs. Add 'Weather' node with probability values."), otherwise say: "VALID: All nodes, connections, and CPDs present."
-
-Original Description:
----
-${networkOutput}
-
-Mermaid Code:
----
+Audit this Mermaid diagram for a Bayesian network:
+- Does every node clearly name all its possible states and explicitly mention CPT/probability values?
+- Are all connections present as per the Bayesian network structure?
+If anything is missing, say what/where/how. Otherwise say: "VALID: All nodes, states, CPTs, and edges present and explicit."
+-- Mermaid code --
 ${mermaidCode}
     `
-
-    const { text: judgeVerdictRaw } = await generateText({
+    const { text: judgeText } = await generateText({
       model: openai("gpt-4o"),
       prompt: judgePrompt,
-      temperature: 0.0,
-      maxTokens: 400,
+      temperature: 0.1,
+      maxTokens: 500,
     })
-
-    const judgeVerdict = judgeVerdictRaw.trim()
+    judgeVerdict = judgeText.trim()
 
     if (judgeVerdict.startsWith("VALID")) {
-      // First attempt is good!
       return NextResponse.json({
         mermaidCode,
         judgeVerdict,
       })
     } else {
-      // === STEP 3: FIX ATTEMPT using LLM Judge feedback ===
-      const fixPrompt = `You just generated the following Mermaid flowchart code for a Bayesian network. However, here is feedback from an expert LLM judge which tells you what to specifically improve or add.
-
-*** Feedback from judge: ***
+      // Correction step
+      const fixPrompt = `
+Here is an expert LLM judge's feedback for the Mermaid diagram above:
 ${judgeVerdict}
-
-Your task:
-- Regenerate improved Mermaid code that fully and strictly incorporates the suggestions, improvements, or elements listed above, in addition to all prior requirements.
-- Start directly with "flowchart TD", place each node/connection on a separate line, and use clear node names (no spaces; use underscores or camelCase).
-- Include all missing nodes, connections, CPDs or numbers wherever relevant.
-
-Bayesian Network Description:
----
-${networkOutput}
-
-Respond ONLY with the corrected pure Mermaid code, with no explanations, markdown or code block formatting.
+Regenerate the Mermaid diagram. Fix everything listed, and obey all previous requirements.
+-- Bayesian Network --
+${bayesNet}
+Respond ONLY with correct, pure Mermaid code (no explanations or markdown).
 `
-
       const { text: fixedText } = await generateText({
         model: openai("gpt-4o"),
         prompt: fixPrompt,
-        temperature: 0.1,
-        maxTokens: 1100,
+        temperature: 0.08,
+        maxTokens: 2000,
       })
-
-      let fixedMermaidCode = fixedText.trim()
-      // fixedMermaidCode = fixedMermaidCode.replace(/```
-      // fixedMermaidCode = fixedMermaidCode.replace(/```\s*/g, "")
-      mermaidCode = mermaidCode.replace(/```/g, "")
-      const fixedLines = fixedMermaidCode.split("\n")
-      const fixedCleanedLines = []
-      let fixedFoundFlowchartTD = false
-
-      for (const line of fixedLines) {
-        const trimmedLine = line.trim()
-        if (trimmedLine === "flowchart TD") {
-          if (!fixedFoundFlowchartTD) {
-            fixedCleanedLines.push(trimmedLine)
-            fixedFoundFlowchartTD = true
+      mermaidCode = fixedText.trim().replace(/```/g, "")
+      // Retidy again as before
+      const lines2 = mermaidCode.split("\n")
+      const cleanedLines2: string[] = []
+      let foundHeader2 = false
+      for (const line of lines2) {
+        const t = line.trim()
+        if (t.toLowerCase() === "flowchart td") {
+          if (!foundHeader2) {
+            cleanedLines2.push("flowchart TD")
+            foundHeader2 = true
           }
-        } else if (trimmedLine) {
-          fixedCleanedLines.push(line)
+        } else if (t.length > 0) {
+          cleanedLines2.push(line)
         }
       }
+      if (!foundHeader2) cleanedLines2.unshift("flowchart TD")
+      mermaidCode = cleanedLines2.join("\n")
 
-      if (!fixedFoundFlowchartTD) {
-        fixedCleanedLines.unshift("flowchart TD")
-      }
-
-      fixedMermaidCode = fixedCleanedLines.join("\n")
-
-      // Re-evaluate the improved code
-      const rejudgePrompt = `
-Act as an expert in Bayesian networks and diagram verification.
-
-Given the original Bayesian network description and the (improved) Mermaid diagram code, check strictly if ALL of the following are now included:
-- Every node, with correct, clear labels (no missing variables)
-- Every connection (parent-child relationships)
-- Every Conditional Probability Distribution (CPD) value or table, as numbers within nodes
-
-If any required element is still missing, give a brief explanation listing exactly what’s absent and how to improve, otherwise say: "VALID: All nodes, connections, and CPDs present."
-
-Original Description:
----
-${networkOutput}
-
-Mermaid Code:
----
-${fixedMermaidCode}
-      `
-      const { text: finalJudgeVerdictRaw } = await generateText({
+      // Rejudge final
+      const { text: finalJudgeText } = await generateText({
         model: openai("gpt-4o"),
-        prompt: rejudgePrompt,
-        temperature: 0.0,
-        maxTokens: 400,
+        prompt: judgePrompt.replace('${mermaidCode}', mermaidCode),
+        temperature: 0.1,
+        maxTokens: 500,
       })
-
-      const finalJudgeVerdict = finalJudgeVerdictRaw.trim()
+      judgeVerdict = finalJudgeText.trim()
 
       return NextResponse.json({
-        // Return best correction attempt and final feedback
-        mermaidCode: fixedMermaidCode,
-        judgeVerdict: finalJudgeVerdict,
-        previousAttempt: {
-          mermaidCode,
-          judgeVerdict,
-        },
+        mermaidCode,
+        judgeVerdict,
       })
     }
   } catch (error) {
-    // In unusual catastrophic failure, fallback to old behavior
-    console.error("Error generating Mermaid code or judging:", error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to generate or validate Mermaid diagram",
-        fallbackSuggestion: "Try re-sending your Bayesian network description, or ensure it is clearly formatted.",
-      },
-      { status: 500 },
-    )
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Failed to generate Mermaid diagram",
+      mermaidCode,
+      judgeVerdict,
+      bayesNet,
+      fallbackSuggestion: "Check output from Bayesian Network generator and re-run.",
+    }, { status: 500 })
   }
 }
-
-
