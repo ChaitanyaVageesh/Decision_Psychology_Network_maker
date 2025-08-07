@@ -3,9 +3,6 @@ import { openai } from "@ai-sdk/openai"
 import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
-  let bayesNet: string | null = null
-  let judgeVerdict: string | null = null
-
   try {
     const { jsonData, situationDescription } = await request.json()
 
@@ -21,6 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON format" }, { status: 400 })
     }
 
+    // Prompt template for generating Bayesian network
     const prompt = `You are a cognitive modeler and an expert in psychometric network analysis. Your task is not merely to build a Bayesian Network; it is to architect a dynamic cognitive simulation of a specific persona's decision-making process, for the situation given below
 
 SITUATION DESCRIPTION:
@@ -35,81 +33,21 @@ The output must be a highly detailed, reconfigurable Bayesian Network (RBN) that
 
 Make sure the network is practical and can be used for probabilistic inference in the described situation.`
 
-    // Generate Bayesian Network
-    const { text: bnText } = await generateText({
-      model: openai("gpt-4o"),
-      prompt,
+    const { text } = await generateText({
+      model: openai("o3"),
+      prompt: prompt,
       temperature: 0.7,
-      maxTokens: 6000,
+      maxTokens: 2000,
     })
-    bayesNet = bnText.trim()
 
-    // Judge the network for CPTs, states, and edges
-    const judgePrompt = `
-Your job is to strictly audit the following Bayesian Network specification. These must all be present:
-1. Each non-evidence node: complete list of possible states
-2. Every node: explicit Conditional Probability Table (CPT) covering all parent states (need numbers adding all states) up to 1 
-3. Every node: all parent-child connections (edges)
-4. No missing details for the above
-
-If missing, enumerate node, what's missing, and how to fix. If all present, say: "VALID: All CPTs, states, and connections present and explicit for every node."
---- Output ---
-${bayesNet}
-    `
-    const { text: judgeText } = await generateText({
-      model: openai("gpt-4o"),
-      prompt: judgePrompt,
-      temperature: 0.1,
-      maxTokens: 700,
-    })
-    judgeVerdict = judgeText.trim()
-
-    if (judgeVerdict.startsWith("VALID")) {
-      return NextResponse.json({
-        bayesNet,
-        judgeVerdict,
-      })
-    } else {
-      // Correction step: pass all feedback as explicit improvements
-      const fixPrompt = `
-Revise and regenerate the Bayesian Network specification. Incorporate each missing element or fix advised below, making sure every node, connection, and CPT is complete and clearly listed.
-LLM Judge FEEDBACK:
-${judgeVerdict}
-
-The original situation:
-${situationDescription}
-JSON DATA:
-${JSON.stringify(parsedJson, null, 2)}
-[...instructions from first prompt...]
-`
-      const { text: fixedNetText } = await generateText({
-        model: openai("gpt-4o"),
-        prompt: fixPrompt,
-        temperature: 0.65,
-        maxTokens: 2200,
-      })
-      bayesNet = fixedNetText.trim()
-
-      // Re-judge improved output
-      const { text: fixedJudgeText } = await generateText({
-        model: openai("gpt-4o"),
-        prompt: judgePrompt.replace('${bayesNet}', bayesNet),
-        temperature: 0.1,
-        maxTokens: 700,
-      })
-      judgeVerdict = fixedJudgeText.trim()
-
-      return NextResponse.json({
-        bayesNet,
-        judgeVerdict,
-      })
-    }
+    return NextResponse.json({ output: text })
   } catch (error) {
-    // Always respond with what’s available
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : "Failed to generate Bayesian network",
-      bayesNet,
-      judgeVerdict,
-    }, { status: 500 })
+    console.error("Error generating Bayesian network:", error)
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to generate Bayesian network",
+      },
+      { status: 500 },
+    )
   }
 }
