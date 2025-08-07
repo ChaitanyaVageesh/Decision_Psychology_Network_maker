@@ -129,8 +129,9 @@ Respond ONLY with the corrected pure Mermaid code, with no explanations, markdow
       })
 
       let fixedMermaidCode = fixedText.trim()
-      fixedMermaidCode = fixedMermaidCode.replace(/```
-      fixedMermaidCode = fixedMermaidCode.replace(/```\s*/g, "")
+      // fixedMermaidCode = fixedMermaidCode.replace(/```
+      // fixedMermaidCode = fixedMermaidCode.replace(/```\s*/g, "")
+      mermaidCode = mermaidCode.replace(/```/g, "")
       const fixedLines = fixedMermaidCode.split("\n")
       const fixedCleanedLines = []
       let fixedFoundFlowchartTD = false
